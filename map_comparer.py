@@ -1,26 +1,52 @@
 import sys
 import yaml
-import matplotlib.pyplot as plt
 
 from PyQt5.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 from PyQt5.QtCore import Qt
 
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
 
-class DropWidget(QLabel):
+
+class MplCanvas(FigureCanvas):
+    def __init__(self):
+        self.fig = Figure(figsize=(8,6), dpi=100)
+        self.ax = self.fig.add_subplot(111)
+        super().__init__(self.fig)
+
+
+class DropWidget(QWidget):
     def __init__(self):
         super().__init__()
 
-        self.setText("\n\n Drag & Drop your track YAML file here \n\n")
-        self.setAlignment(Qt.AlignCenter)
-        self.setStyleSheet("""
+        self.label = QLabel("\n\n Drag & Drop your track YAML file here \n\n")
+        self.label.setAlignment(Qt.AlignCenter)
+        self.label.setStyleSheet("""
             QLabel {
                 border: 3px dashed #aaa;
-                font-size: 18px;
-                padding: 40px;
+                font-size: 16px;
+                padding: 20px;
             }
         """)
 
+        # ✅ create canvas first
+        self.canvas = MplCanvas()
+
+        # ✅ THEN create toolbar (THIS WAS MISSING)
+        from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
+        self.toolbar = NavigationToolbar(self.canvas, self)
+
+        # layout
+        layout = QVBoxLayout()
+        layout.addWidget(self.label)
+        layout.addWidget(self.canvas)
+        layout.addWidget(self.toolbar)   # now it exists → no crash
+
+        self.setLayout(layout)
         self.setAcceptDrops(True)
+    
+        self.canvas.hide()
+        self.toolbar.hide()
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
@@ -30,19 +56,22 @@ class DropWidget(QLabel):
 
     def dropEvent(self, event):
         file_path = event.mimeData().urls()[0].toLocalFile()
-        self.setText(f"Loaded:\n{file_path}")
+        self.label.setText(f"Loaded:\n{file_path}")
 
         try:
             self.plot_track(file_path)
+            # Hide the label after successful plotting
+            self.label.setVisible(False)
+            self.canvas.show()
+            self.toolbar.show()
         except Exception as e:
-            self.setText(f"Error:\n{str(e)}")
+            self.label.setText(f"Error:\n{str(e)}")
 
     def plot_track(self, file_path):
         with open(file_path, 'r') as f:
             data = yaml.safe_load(f)
 
         track = data['track']
-
         left = track['left']
         right = track['right']
 
@@ -52,21 +81,20 @@ class DropWidget(QLabel):
         right_x = [p['position'][0] for p in right]
         right_y = [p['position'][1] for p in right]
 
-        plt.figure(figsize=(8, 8))
-        plt.scatter(left_x, left_y, c='blue', s=10)
-        plt.scatter(right_x, right_y, c='yellow', s=10)
+        # Clear previous plot
+        self.canvas.ax.clear()
 
-        # Optional: centerline
-        center_x = [(lx + rx)/2 for lx, rx in zip(left_x, right_x)]
-        center_y = [(ly + ry)/2 for ly, ry in zip(left_y, right_y)]
-        plt.plot(center_x, center_y, 'k--', label='Centerline')
+        # Plot boundaries
+        self.canvas.ax.scatter(left_x, left_y, c='blue', marker='o', label='Left')
+        self.canvas.ax.scatter(right_x, right_y, c='yellow', marker='o', label='Right')
 
-        plt.axis('equal')
-        plt.legend()
-        plt.title("Track Layout")
-        plt.grid()
 
-        plt.show()
+        self.canvas.ax.set_title("Track Layout")
+        self.canvas.ax.set_aspect('equal')
+        self.canvas.ax.grid()
+        self.canvas.ax.legend()
+
+        self.canvas.draw()
 
 
 class MainWindow(QWidget):
@@ -74,12 +102,11 @@ class MainWindow(QWidget):
         super().__init__()
 
         self.setWindowTitle("Track Viewer")
-        self.resize(400, 300)
+        self.resize(800, 600)
 
         layout = QVBoxLayout()
-        self.drop_widget = DropWidget()
+        layout.addWidget(DropWidget())
 
-        layout.addWidget(self.drop_widget)
         self.setLayout(layout)
 
 
