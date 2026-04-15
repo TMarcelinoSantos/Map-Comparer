@@ -2,7 +2,7 @@ import sys
 import yaml
 
 from PyQt5.QtWidgets import (
-    QApplication, QLabel, QVBoxLayout, QWidget, QSplitter
+    QApplication, QLabel, QVBoxLayout, QWidget, QSplitter, QPushButton
 )
 from PyQt5.QtCore import Qt
 
@@ -63,6 +63,10 @@ class MapPanel(QWidget):
 
         self.canvas.draw()
 
+    def clear(self):
+        self.canvas.ax.clear()
+        self.canvas.draw()
+
 
 # =========================
 # Drop + Map container
@@ -113,6 +117,49 @@ class DropMapPanel(QWidget):
         except Exception as e:
             self.drop_label.setText(f"Error:\n{str(e)}")
 
+    def reset(self):
+        self.map.clear()
+        self.map.hide()
+        self.drop_label.show()
+
+
+# =========================
+# Control Panel
+# =========================
+class ControlPanel(QWidget):
+    def __init__(self, left, right):
+        super().__init__()
+
+        self.left = left
+        self.right = right
+
+        layout = QVBoxLayout()
+
+        btn_reset_left = QPushButton("Reset GT")
+        btn_reset_right = QPushButton("Reset SLAM")
+        btn_reset_all = QPushButton("Reset BOTH")
+
+        btn_reset_left.clicked.connect(self.reset_left)
+        btn_reset_right.clicked.connect(self.reset_right)
+        btn_reset_all.clicked.connect(self.reset_all)
+
+        layout.addWidget(btn_reset_left)
+        layout.addWidget(btn_reset_right)
+        layout.addWidget(btn_reset_all)
+        layout.addStretch()
+
+        self.setLayout(layout)
+
+    def reset_left(self):
+        self.left.reset()
+
+    def reset_right(self):
+        self.right.reset()
+
+    def reset_all(self):
+        self.left.reset()
+        self.right.reset()
+
 
 # =========================
 # Main Window
@@ -122,26 +169,31 @@ class MainWindow(QWidget):
         super().__init__()
 
         self.setWindowTitle("Track Viewer")
-        self.resize(1200, 700)
+        self.resize(1300, 700)
 
         # LEFT = Ground Truth
         self.left_panel = DropMapPanel(
             title="GROUND TRUTH",
             hint_text="Drop GROUND TRUTH map here",
-            accent_color="#2b6cb0"   # blue
+            accent_color="#2b6cb0"
         )
 
         # RIGHT = SLAM
         self.right_panel = DropMapPanel(
             title="SLAM MAP",
             hint_text="Drop SLAM map here",
-            accent_color="#c53030"   # red
+            accent_color="#c53030"
         )
+
+        # CONTROL PANEL (NEW)
+        self.controls = ControlPanel(self.left_panel, self.right_panel)
 
         splitter = QSplitter(Qt.Horizontal)
         splitter.addWidget(self.left_panel)
         splitter.addWidget(self.right_panel)
-        splitter.setSizes([600, 600])
+        splitter.addWidget(self.controls)
+
+        splitter.setSizes([500, 500, 200])
 
         layout = QVBoxLayout()
         layout.addWidget(splitter)
