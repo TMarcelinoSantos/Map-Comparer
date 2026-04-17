@@ -185,6 +185,29 @@ class DropMapPanel(QWidget):
 # =========================
 # Control Panel
 # =========================
+class MetricBox(QLabel):
+        def __init__(self, title, color):
+            super().__init__()
+
+            self.title = title
+            self.color = color
+
+            self.setAlignment(Qt.AlignCenter)
+            self.setStyleSheet(f"""
+                QLabel {{
+                    border: 2px solid {color};
+                    border-radius: 10px;
+                    padding: 15px;
+                    font-size: 16px;
+                    background-color: #f9f9f9;
+                }}
+            """)
+
+            self.setText(f"{self.title}\n---")
+
+        def set_value(self, value):
+            self.setText(f"{self.title}\n{value:.3f} m")
+
 class ControlPanel(QWidget):
     def __init__(self, left, right):
         super().__init__()
@@ -194,7 +217,9 @@ class ControlPanel(QWidget):
 
         layout = QVBoxLayout()
 
-        self.ate_label = QLabel("ATE: -")
+        self.blue_box = MetricBox("Blue ATE", "#2b6cb0")
+        self.yellow_box = MetricBox("Yellow ATE", "#d69e2e")
+        self.total_box = MetricBox("Total ATE", "#444")
 
         btn_left = QPushButton("Reset GT")
         btn_right = QPushButton("Reset SLAM")
@@ -204,7 +229,13 @@ class ControlPanel(QWidget):
         btn_right.clicked.connect(self.right.reset)
         btn_all.clicked.connect(self.reset_all)
 
-        layout.addWidget(self.ate_label)
+        # Layout
+        layout.addWidget(self.blue_box)
+        layout.addWidget(self.yellow_box)
+        layout.addWidget(self.total_box)
+
+        layout.addSpacing(20)
+
         layout.addWidget(btn_left)
         layout.addWidget(btn_right)
         layout.addWidget(btn_all)
@@ -229,15 +260,20 @@ class ControlPanel(QWidget):
         blue_ate = symmetric_ate(gt_left, slam_left)
         yellow_ate = symmetric_ate(gt_right, slam_right)
 
-        self.ate_label.setText(
-            f"Blue ATE: {blue_ate:.3f} m\n"
-            f"Yellow ATE: {yellow_ate:.3f} m"
-        )
+        total_ate = (blue_ate + yellow_ate) / 2
+
+        # Update UI
+        self.blue_box.set_value(blue_ate)
+        self.yellow_box.set_value(yellow_ate)
+        self.total_box.set_value(total_ate)
 
     def reset_all(self):
         self.left.reset()
         self.right.reset()
-        self.ate_label.setText("ATE: -")
+        
+        self.blue_box.setText("Blue ATE\n---")
+        self.yellow_box.setText("Yellow ATE\n---")
+        self.total_box.setText("Total ATE\n---")
 
 
 # =========================
