@@ -39,8 +39,11 @@ def best_fit_transform(A, B):
     return R, t
 
 
-def icp(A, B, max_iterations=20):
+def icp_full(A, B, max_iterations=20):
     A = A.copy()
+
+    R_total = np.eye(2)
+    t_total = np.zeros(2)
 
     for _ in range(max_iterations):
         tree = cKDTree(B)
@@ -49,9 +52,13 @@ def icp(A, B, max_iterations=20):
         matched_B = B[indices]
 
         R, t = best_fit_transform(A, matched_B)
+
         A = (R @ A.T).T + t
 
-    return A
+        R_total = R @ R_total
+        t_total = R @ t_total + t
+
+    return R_total, t_total
 
 
 def symmetric_ate(gt_points, slam_points):
@@ -107,11 +114,9 @@ class MapPanel(QWidget):
         right_x = [p["position"][0] for p in right]
         right_y = [p["position"][1] for p in right]
 
-        # Store points
         self.left_points = np.column_stack((left_x, left_y))
         self.right_points = np.column_stack((right_x, right_y))
 
-        # Plot
         self.canvas.ax.clear()
         self.canvas.ax.scatter(left_x, left_y, c="blue", s=10, label="Blue cones")
         self.canvas.ax.scatter(right_x, right_y, c="yellow", s=10, label="Yellow cones")
@@ -120,6 +125,62 @@ class MapPanel(QWidget):
         self.canvas.ax.set_aspect("equal")
         self.canvas.ax.grid()
         self.canvas.ax.legend()
+
+        self.canvas.draw()
+
+    def clear(self):
+        self.canvas.ax.clear()
+        self.canvas.draw()
+
+
+# =========================
+# Overlay Panel (NEW)
+# =========================
+class OverlayPanel(QWidget):
+    def __init__(self):
+        super().__init__()
+
+        self.canvas = MplCanvas()
+        self.toolbar = NavigationToolbar(self.canvas, self)
+
+        layout = QVBoxLayout()
+        layout.addWidget(self.canvas)
+        layout.addWidget(self.toolbar)
+        self.setLayout(layout)
+
+    def plot_overlay(self, gt_left, gt_right, slam_left, slam_right):
+        ax = self.canvas.ax
+        ax.clear()
+
+        # Plot GT
+        ax.scatter(gt_left[:, 0], gt_left[:, 1], c="blue", s=20, label="GT Blue")
+        ax.scatter(gt_right[:, 0], gt_right[:, 1], c="gold", s=20, label="GT Yellow")
+
+        # Plot SLAM
+        ax.scatter(slam_left[:, 0], slam_left[:, 1], c="cyan", s=10, label="SLAM Blue")
+        ax.scatter(slam_right[:, 0], slam_right[:, 1], c="orange", s=10, label="SLAM Yellow")
+
+        # Matching lines (SLAM → GT)
+        tree_blue = cKDTree(gt_left)
+        _, idx_blue = tree_blue.query(slam_left)
+
+        for i, j in enumerate(idx_blue):
+            p1 = slam_left[i]
+            p2 = gt_left[j]
+            ax.plot([p1[0], p2[0]], [p1[1], p2[1]], 'gray', linewidth=0.5)
+
+        tree_yellow = cKDTree(gt_right)
+        _, idx_yellow = tree_yellow.query(slam_right)
+
+        for i, j in enumerate(idx_yellow):
+            p1 = slam_right[i]
+            p2 = gt_right[j]
+            ax.plot([p1[0], p2[0]], [p1[1], p2[1]], 'gray', linewidth=0.5)
+
+        ax.set_title("Overlay + Correspondences")
+        ax.set_aspect("equal")
+        ax.grid()
+        ax.legend()
 
         self.canvas.draw()
 
@@ -183,37 +244,39 @@ class DropMapPanel(QWidget):
 
 
 # =========================
-# Control Panel
+# Metric Box
 # =========================
 class MetricBox(QLabel):
-        def __init__(self, title, color):
-            super().__init__()
+    def __init__(self, title, color):
+        super().__init__()
 
-            self.title = title
-            self.color = color
+        self.setAlignment(Qt.AlignCenter)
+        self.setStyleSheet(f"""
+            QLabel {{
+                border: 2px solid {color};
+                border-radius: 10px;
+                padding: 15px;
+                font-size: 16px;
+                background-color: #f9f9f9;
+            }}
+        """)
 
-            self.setAlignment(Qt.AlignCenter)
-            self.setStyleSheet(f"""
-                QLabel {{
-                    border: 2px solid {color};
-                    border-radius: 10px;
-                    padding: 15px;
-                    font-size: 16px;
-                    background-color: #f9f9f9;
-                }}
-            """)
+        self.setText(f"{title}\n---")
 
-            self.setText(f"{self.title}\n---")
+    def set_value(self, title, value):
+        self.setText(f"{title}\n{value:.3f} m")
 
-        def set_value(self, value):
-            self.setText(f"{self.title}\n{value:.3f} m")
 
+# =========================
+# Control Panel
+# =========================
 class ControlPanel(QWidget):
-    def __init__(self, left, right):
+    def __init__(self, left, right, overlay):
         super().__init__()
 
         self.left = left
         self.right = right
+        self.overlay = overlay
 
         layout = QVBoxLayout()
 
@@ -229,7 +292,6 @@ class ControlPanel(QWidget):
         btn_right.clicked.connect(self.right.reset)
         btn_all.clicked.connect(self.reset_all)
 
-        # Layout
         layout.addWidget(self.blue_box)
         layout.addWidget(self.yellow_box)
         layout.addWidget(self.total_box)
@@ -253,24 +315,31 @@ class ControlPanel(QWidget):
         slam_left = self.right.map.left_points
         slam_right = self.right.map.right_points
 
-        # Align
-        slam_left = icp(slam_left, gt_left)
-        slam_right = icp(slam_right, gt_right)
+        # GLOBAL ICP
+        gt_all = np.vstack((gt_left, gt_right))
+        slam_all = np.vstack((slam_left, slam_right))
 
-        blue_ate = symmetric_ate(gt_left, slam_left)
-        yellow_ate = symmetric_ate(gt_right, slam_right)
+        R, t = icp_full(slam_all, gt_all)
 
+        slam_left_aligned = (R @ slam_left.T).T + t
+        slam_right_aligned = (R @ slam_right.T).T + t
+
+        blue_ate = symmetric_ate(gt_left, slam_left_aligned)
+        yellow_ate = symmetric_ate(gt_right, slam_right_aligned)
         total_ate = (blue_ate + yellow_ate) / 2
 
-        # Update UI
-        self.blue_box.set_value(blue_ate)
-        self.yellow_box.set_value(yellow_ate)
-        self.total_box.set_value(total_ate)
+        self.blue_box.set_value("Blue ATE", blue_ate)
+        self.yellow_box.set_value("Yellow ATE", yellow_ate)
+        self.total_box.set_value("Total ATE", total_ate)
+
+        # UPDATE OVERLAY
+        self.overlay.plot_overlay(gt_left, gt_right, slam_left_aligned, slam_right_aligned)
 
     def reset_all(self):
         self.left.reset()
         self.right.reset()
-        
+        self.overlay.clear()
+
         self.blue_box.setText("Blue ATE\n---")
         self.yellow_box.setText("Yellow ATE\n---")
         self.total_box.setText("Total ATE\n---")
@@ -284,32 +353,24 @@ class MainWindow(QWidget):
         super().__init__()
 
         self.setWindowTitle("Track Viewer")
-        self.resize(1300, 700)
+        self.resize(1500, 700)
 
-        self.left_panel = DropMapPanel(
-            "GROUND TRUTH",
-            "Drop Ground Truth map",
-            "#2b6cb0"
-        )
+        self.left_panel = DropMapPanel("GROUND TRUTH", "Drop Ground Truth map", "#2b6cb0")
+        self.right_panel = DropMapPanel("SLAM MAP", "Drop SLAM map", "#c53030")
+        self.overlay_panel = OverlayPanel()
 
-        self.right_panel = DropMapPanel(
-            "SLAM MAP",
-            "Drop SLAM map",
-            "#c53030"
-        )
+        self.controls = ControlPanel(self.left_panel, self.right_panel, self.overlay_panel)
 
-        self.controls = ControlPanel(self.left_panel, self.right_panel)
-
-        # Link controls
         self.left_panel.controls = self.controls
         self.right_panel.controls = self.controls
 
         splitter = QSplitter(Qt.Horizontal)
         splitter.addWidget(self.left_panel)
         splitter.addWidget(self.right_panel)
+        splitter.addWidget(self.overlay_panel)
         splitter.addWidget(self.controls)
 
-        splitter.setSizes([500, 500, 200])
+        splitter.setSizes([400, 400, 500, 200])
 
         layout = QVBoxLayout()
         layout.addWidget(splitter)
