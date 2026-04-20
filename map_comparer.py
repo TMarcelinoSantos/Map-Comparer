@@ -105,18 +105,35 @@ class MapPanel(QWidget):
             data = yaml.safe_load(f)
 
         track = data["track"]
-        left = track["left"]
-        right = track["right"]
 
-        left_x = [p["position"][0] for p in left]
-        left_y = [p["position"][1] for p in left]
+        # -------- Robust loading --------
+        left = track.get("left", [])
+        right = track.get("right", [])
+        unknown = track.get("unknown", [])
 
-        right_x = [p["position"][0] for p in right]
-        right_y = [p["position"][1] for p in right]
+        # Filter unknown
+        unknown_blue = [c for c in unknown if c.get("class") == "blue"]
+        unknown_yellow = [c for c in unknown if c.get("class") == "yellow"]
 
-        self.left_points = np.column_stack((left_x, left_y))
-        self.right_points = np.column_stack((right_x, right_y))
+        # Merge both sources
+        blue = left + unknown_blue
+        yellow = right + unknown_yellow
 
+        if (len(left) > 0 or len(right) > 0) and len(unknown) > 0:
+            print("INFO: Merging 'left/right' with filtered 'unknown' cones")
+
+        # Extract positions
+        left_x = [p["position"][0] for p in blue]
+        left_y = [p["position"][1] for p in blue]
+
+        right_x = [p["position"][0] for p in yellow]
+        right_y = [p["position"][1] for p in yellow]
+
+        # Safe storage
+        self.left_points = np.column_stack((left_x, left_y)) if left_x else np.empty((0, 2))
+        self.right_points = np.column_stack((right_x, right_y)) if right_x else np.empty((0, 2))
+
+        # Plot
         self.canvas.ax.clear()
         self.canvas.ax.scatter(left_x, left_y, c="blue", s=10, label="Blue cones")
         self.canvas.ax.scatter(right_x, right_y, c="yellow", s=10, label="Yellow cones")
@@ -134,7 +151,7 @@ class MapPanel(QWidget):
 
 
 # =========================
-# Overlay Panel (NEW)
+# Overlay Panel
 # =========================
 class OverlayPanel(QWidget):
     def __init__(self):
@@ -152,30 +169,32 @@ class OverlayPanel(QWidget):
         ax = self.canvas.ax
         ax.clear()
 
-        # Plot GT
         ax.scatter(gt_left[:, 0], gt_left[:, 1], c="blue", s=20, label="GT Blue")
         ax.scatter(gt_right[:, 0], gt_right[:, 1], c="gold", s=20, label="GT Yellow")
 
-        # Plot SLAM
         ax.scatter(slam_left[:, 0], slam_left[:, 1], c="cyan", s=10, label="SLAM Blue")
         ax.scatter(slam_right[:, 0], slam_right[:, 1], c="orange", s=10, label="SLAM Yellow")
 
-        # Matching lines (SLAM → GT)
+        # Connections
         tree_blue = cKDTree(gt_left)
         _, idx_blue = tree_blue.query(slam_left)
 
         for i, j in enumerate(idx_blue):
-            p1 = slam_left[i]
-            p2 = gt_left[j]
-            ax.plot([p1[0], p2[0]], [p1[1], p2[1]], 'gray', linewidth=0.5)
+            ax.plot(
+                [slam_left[i][0], gt_left[j][0]],
+                [slam_left[i][1], gt_left[j][1]],
+                'gray', linewidth=0.5
+            )
 
         tree_yellow = cKDTree(gt_right)
         _, idx_yellow = tree_yellow.query(slam_right)
 
         for i, j in enumerate(idx_yellow):
-            p1 = slam_right[i]
-            p2 = gt_right[j]
-            ax.plot([p1[0], p2[0]], [p1[1], p2[1]], 'gray', linewidth=0.5)
+            ax.plot(
+                [slam_right[i][0], gt_right[j][0]],
+                [slam_right[i][1], gt_right[j][1]],
+                'gray', linewidth=0.5
+            )
 
         ax.set_title("Overlay + Correspondences")
         ax.set_aspect("equal")
@@ -315,7 +334,6 @@ class ControlPanel(QWidget):
         slam_left = self.right.map.left_points
         slam_right = self.right.map.right_points
 
-        # GLOBAL ICP
         gt_all = np.vstack((gt_left, gt_right))
         slam_all = np.vstack((slam_left, slam_right))
 
@@ -332,7 +350,6 @@ class ControlPanel(QWidget):
         self.yellow_box.set_value("Yellow ATE", yellow_ate)
         self.total_box.set_value("Total ATE", total_ate)
 
-        # UPDATE OVERLAY
         self.overlay.plot_overlay(gt_left, gt_right, slam_left_aligned, slam_right_aligned)
 
     def reset_all(self):
