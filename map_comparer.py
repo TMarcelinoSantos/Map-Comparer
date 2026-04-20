@@ -111,32 +111,56 @@ class MapPanel(QWidget):
         right = track.get("right", [])
         unknown = track.get("unknown", [])
 
-        # Filter unknown
+        # ---- classify unknown ----
         unknown_blue = [c for c in unknown if c.get("class") == "blue"]
         unknown_yellow = [c for c in unknown if c.get("class") == "yellow"]
+        unknown_orange = [c for c in unknown if c.get("class") == "big-orange"]
 
-        # Merge both sources
-        blue = left + unknown_blue
-        yellow = right + unknown_yellow
+        # ---- classify known (left/right may contain mixed classes) ----
+        def split_cones(cones):
+            blue, yellow, orange = [], [], []
+            for c in cones:
+                cls = str(c.get("class"))
+                if cls == "blue":
+                    blue.append(c)
+                elif cls == "yellow":
+                    yellow.append(c)
+                elif cls == "big-orange":
+                    orange.append(c)
+            return blue, yellow, orange
 
-        if (len(left) > 0 or len(right) > 0) and len(unknown) > 0:
-            print("INFO: Merging 'left/right' with filtered 'unknown' cones")
+        left_blue, left_yellow, left_orange = split_cones(left)
+        right_blue, right_yellow, right_orange = split_cones(right)
 
-        # Extract positions
-        left_x = [p["position"][0] for p in blue]
-        left_y = [p["position"][1] for p in blue]
+        # ---- merge all ----
+        blue = left_blue + right_blue + unknown_blue
+        yellow = left_yellow + right_yellow + unknown_yellow
+        orange = left_orange + right_orange + unknown_orange
 
-        right_x = [p["position"][0] for p in yellow]
-        right_y = [p["position"][1] for p in yellow]
+        # ---- extract positions ----
+        def extract_xy(cones):
+            x = [p["position"][0] for p in cones]
+            y = [p["position"][1] for p in cones]
+            return x, y
 
-        # Safe storage
-        self.left_points = np.column_stack((left_x, left_y)) if left_x else np.empty((0, 2))
-        self.right_points = np.column_stack((right_x, right_y)) if right_x else np.empty((0, 2))
+        blue_x, blue_y = extract_xy(blue)
+        yellow_x, yellow_y = extract_xy(yellow)
+        orange_x, orange_y = extract_xy(orange)
 
-        # Plot
+        # ---- store (ATE uses blue/yellow only) ----
+        self.left_points = np.column_stack((blue_x, blue_y)) if blue_x else np.empty((0, 2))
+        self.right_points = np.column_stack((yellow_x, yellow_y)) if yellow_x else np.empty((0, 2))
+        self.orange_points = np.column_stack((orange_x, orange_y)) if orange_x else np.empty((0, 2))
+
+        # ---- plot ----
         self.canvas.ax.clear()
-        self.canvas.ax.scatter(left_x, left_y, c="blue", s=10, label="Blue cones")
-        self.canvas.ax.scatter(right_x, right_y, c="yellow", s=10, label="Yellow cones")
+
+        if blue_x:
+            self.canvas.ax.scatter(blue_x, blue_y, c="blue", s=10, label="Blue cones")
+        if yellow_x:
+            self.canvas.ax.scatter(yellow_x, yellow_y, c="yellow", s=10, label="Yellow cones")
+        if orange_x:
+            self.canvas.ax.scatter(orange_x, orange_y, c="orange", s=15, label="Orange cones")
 
         self.canvas.ax.set_title(self.title)
         self.canvas.ax.set_aspect("equal")
@@ -175,26 +199,21 @@ class OverlayPanel(QWidget):
         ax.scatter(slam_left[:, 0], slam_left[:, 1], c="cyan", s=10, label="SLAM Blue")
         ax.scatter(slam_right[:, 0], slam_right[:, 1], c="orange", s=10, label="SLAM Yellow")
 
-        # Connections
         tree_blue = cKDTree(gt_left)
         _, idx_blue = tree_blue.query(slam_left)
 
         for i, j in enumerate(idx_blue):
-            ax.plot(
-                [slam_left[i][0], gt_left[j][0]],
-                [slam_left[i][1], gt_left[j][1]],
-                'gray', linewidth=0.5
-            )
+            ax.plot([slam_left[i][0], gt_left[j][0]],
+                    [slam_left[i][1], gt_left[j][1]],
+                    'gray', linewidth=0.5)
 
         tree_yellow = cKDTree(gt_right)
         _, idx_yellow = tree_yellow.query(slam_right)
 
         for i, j in enumerate(idx_yellow):
-            ax.plot(
-                [slam_right[i][0], gt_right[j][0]],
-                [slam_right[i][1], gt_right[j][1]],
-                'gray', linewidth=0.5
-            )
+            ax.plot([slam_right[i][0], gt_right[j][0]],
+                    [slam_right[i][1], gt_right[j][1]],
+                    'gray', linewidth=0.5)
 
         ax.set_title("Overlay + Correspondences")
         ax.set_aspect("equal")
