@@ -61,6 +61,15 @@ def icp_full(A, B, max_iterations=20):
 
     return R_total, t_total
 
+def interpret_icp(R, t):
+    # --- rotation (2D) → angle ---
+    angle_rad = np.arctan2(R[1, 0], R[0, 0])
+    angle_deg = np.degrees(angle_rad)
+
+    # --- translation ---
+    tx, ty = t
+
+    return angle_deg, tx, ty
 
 def symmetric_ate(gt_points, slam_points):
     if len(gt_points) == 0 or len(slam_points) == 0:
@@ -330,11 +339,16 @@ class ControlPanel(QWidget):
         self.right = right
         self.overlay = overlay
 
-        layout = QVBoxLayout()
+        layout = QVBoxLayout()  
 
+        #ATE metric boxes
         self.blue_box = MetricBox("Blue ATE", "#2b6cb0")
         self.yellow_box = MetricBox("Yellow ATE", "#d69e2e")
         self.total_box = MetricBox("Total ATE", "#444")
+
+        # ICP metric boxes
+        self.rot_box = MetricBox("ICP Rotation", "#805ad5")
+        self.trans_box = MetricBox("ICP Translation", "#2f855a")
 
         btn_left = QPushButton("Reset GT")
         btn_right = QPushButton("Reset SLAM")
@@ -347,6 +361,9 @@ class ControlPanel(QWidget):
         layout.addWidget(self.blue_box)
         layout.addWidget(self.yellow_box)
         layout.addWidget(self.total_box)
+
+        layout.addWidget(self.rot_box)
+        layout.addWidget(self.trans_box)
 
         layout.addSpacing(20)
 
@@ -374,10 +391,6 @@ class ControlPanel(QWidget):
         slam_all = np.vstack((slam_left, slam_right))
 
         R, t = icp_full(slam_all, gt_all)
-        
-        print("ICP Result:")
-        print("Rotation:\n", R)
-        print("Translation:\n", t)
 
         # --- align everything ---
         slam_left_aligned = (R @ slam_left.T).T + t
@@ -392,6 +405,16 @@ class ControlPanel(QWidget):
         self.blue_box.set_value("Blue ATE", blue_ate)
         self.yellow_box.set_value("Yellow ATE", yellow_ate)
         self.total_box.set_value("Total ATE", total_ate)
+
+        # --- ICP metrics ---
+        angle_deg, tx, ty = interpret_icp(R, t)
+
+        self.rot_box.setText(f"ICP Rotation\n{angle_deg:.2f}°")
+        self.trans_box.setText(
+            f"ICP Translation\n"
+            f"dx = {tx:.3f} m\n"
+            f"dy = {ty:.3f} m"
+        )
 
         # --- UPDATED overlay call ---
         self.overlay.plot_overlay(
