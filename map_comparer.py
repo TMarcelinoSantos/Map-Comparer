@@ -3,7 +3,7 @@ import yaml
 import numpy as np
 
 from PyQt5.QtWidgets import (
-    QApplication, QLabel, QVBoxLayout, QWidget,
+    QApplication, QFrame, QLabel, QVBoxLayout, QWidget,
     QSplitter, QPushButton
 )
 from PyQt5.QtCore import Qt
@@ -352,6 +352,33 @@ class ControlPanel(QWidget):
     def __init__(self, left, right, overlay):
         super().__init__()
 
+        self.ate_label = QLabel("ATE Metrics")
+        self.icp_label = QLabel("ICP Transform")
+
+        self.ate_label.setAlignment(Qt.AlignCenter)
+        self.icp_label.setAlignment(Qt.AlignCenter)
+
+        self.ate_label.setStyleSheet("""
+            QLabel {
+                font-weight: bold;
+                font-size: 16px;
+                margin-top: 10px;
+            }
+        """)
+
+        self.icp_label.setStyleSheet("""
+            QLabel {
+                font-weight: bold;
+                font-size: 16px;
+                margin-top: 20px;
+            }
+        """)
+
+        self.separator = QFrame()
+        self.separator.setFrameShape(QFrame.HLine)
+        self.separator.setFrameShadow(QFrame.Sunken)
+        self.separator.setStyleSheet("color: #888; margin-top: 10px; margin-bottom: 10px;")
+
         self.left = left
         self.right = right
         self.overlay = overlay
@@ -375,10 +402,17 @@ class ControlPanel(QWidget):
         btn_right.clicked.connect(self.right.reset)
         btn_all.clicked.connect(self.reset_all)
 
+        # --- ATE SECTION ---
+        layout.addWidget(self.ate_label)
         layout.addWidget(self.blue_box)
         layout.addWidget(self.yellow_box)
         layout.addWidget(self.total_box)
 
+        # --- separator ---
+        layout.addWidget(self.separator)
+
+        # --- ICP SECTION ---
+        layout.addWidget(self.icp_label)
         layout.addWidget(self.rot_box)
         layout.addWidget(self.trans_box)
 
