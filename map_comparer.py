@@ -125,10 +125,11 @@ class MapPanel(QWidget):
         unknown_blue = [c for c in unknown if c.get("class") == "blue"]
         unknown_yellow = [c for c in unknown if c.get("class") == "yellow"]
         unknown_orange = [c for c in unknown if c.get("class") == "big-orange"]
+        unknown_sorange = [c for c in unknown if c.get("class") == "small-orange"]
 
         # ---- classify known (left/right may contain mixed classes) ----
         def split_cones(cones):
-            blue, yellow, orange = [], [], []
+            blue, yellow, orange, sorange = [], [], [], []
             for c in cones:
                 cls = str(c.get("class"))
                 if cls == "blue":
@@ -137,15 +138,18 @@ class MapPanel(QWidget):
                     yellow.append(c)
                 elif cls == "big-orange":
                     orange.append(c)
-            return blue, yellow, orange
+                elif cls == "small-orange":
+                    sorange.append(c)  # treat small orange as big for now
+            return blue, yellow, orange, sorange
 
-        left_blue, left_yellow, left_orange = split_cones(left)
-        right_blue, right_yellow, right_orange = split_cones(right)
+        left_blue, left_yellow, left_orange, left_sorange = split_cones(left)
+        right_blue, right_yellow, right_orange, right_sorange = split_cones(right)
 
         # ---- merge all ----
         blue = left_blue + right_blue + unknown_blue
         yellow = left_yellow + right_yellow + unknown_yellow
         orange = left_orange + right_orange + unknown_orange
+        sorange = left_sorange + right_sorange + unknown_sorange
 
         # ---- extract positions ----
         def extract_xy(cones):
@@ -156,11 +160,14 @@ class MapPanel(QWidget):
         blue_x, blue_y = extract_xy(blue)
         yellow_x, yellow_y = extract_xy(yellow)
         orange_x, orange_y = extract_xy(orange)
+        sorange_x, sorange_y = extract_xy(sorange)
 
         # ---- store (ATE uses blue/yellow only) ----
         self.left_points = np.column_stack((blue_x, blue_y)) if blue_x else np.empty((0, 2))
         self.right_points = np.column_stack((yellow_x, yellow_y)) if yellow_x else np.empty((0, 2))
         self.orange_points = np.column_stack((orange_x, orange_y)) if orange_x else np.empty((0, 2))
+        self.sorange_points = np.column_stack((sorange_x, sorange_y)) if sorange_x else np.empty((0, 2))
+
 
         # ---- plot ----
         self.canvas.ax.clear()
@@ -168,14 +175,16 @@ class MapPanel(QWidget):
         if blue_x:
             self.canvas.ax.scatter(blue_x, blue_y, c="blue", s=10, label="Blue cones")
         if yellow_x:
-            self.canvas.ax.scatter(yellow_x, yellow_y, c="yellow", s=10, label="Yellow cones")
+            self.canvas.ax.scatter(yellow_x, yellow_y, c="orange", s=10, label="Yellow cones")
         if orange_x:
-            self.canvas.ax.scatter(orange_x, orange_y, c="orange", s=15, label="Orange cones")
+            self.canvas.ax.scatter(orange_x, orange_y, c="red", s=15, label="Big Orange cones")
+        if sorange_x:
+            self.canvas.ax.scatter(sorange_x, sorange_y, c="green", s=5, label="Orange cones")
 
         self.canvas.ax.set_title(self.title, fontdict=font1)
         self.canvas.ax.set_aspect("equal")
         self.canvas.ax.grid()
-        self.canvas.ax.legend(bbox_to_anchor=(0.48, -0.1), loc="upper center", ncol=3)
+        self.canvas.ax.legend(bbox_to_anchor=(0.48, -0.1), loc="upper center", ncol=2)
 
         self.canvas.draw()
 
@@ -199,8 +208,8 @@ class OverlayPanel(QWidget):
         layout.addWidget(self.toolbar)
         self.setLayout(layout)
 
-    def plot_overlay(self, gt_left, gt_right, gt_orange,
-                 slam_left, slam_right, slam_orange):
+    def plot_overlay(self, gt_left, gt_right, gt_orange, gt_sorange,
+                 slam_left, slam_right, slam_orange, slam_sorange):
 
         ax = self.canvas.ax
         ax.clear()
@@ -212,14 +221,22 @@ class OverlayPanel(QWidget):
         if len(gt_orange) > 0:
             ax.scatter(gt_orange[:, 0], gt_orange[:, 1],
                     s=50, label="GT Orange", edgecolors="red", facecolors="none")
+            
+        if len(gt_sorange) > 0:
+            ax.scatter(gt_sorange[:, 0], gt_sorange[:, 1],
+                    s=30, label="GT Small Orange", edgecolors="green", facecolors="none")
 
         # --- SLAM ---
-        ax.scatter(slam_left[:, 0], slam_left[:, 1], c="cyan", s=10, label="SLAM Blue")
+        ax.scatter(slam_left[:, 0], slam_left[:, 1], c="blue", s=10, label="SLAM Blue")
         ax.scatter(slam_right[:, 0], slam_right[:, 1], c="orange", s=10, label="SLAM Yellow")
 
         if len(slam_orange) > 0:
             ax.scatter(slam_orange[:, 0], slam_orange[:, 1],
-                    c="red", s=40, label="SLAM Orange")
+                    c="red", s=40, label="SLAM Big Orange")
+            
+        if len(slam_sorange) > 0:
+            ax.scatter(slam_sorange[:, 0], slam_sorange[:, 1],
+                    c="green", s=5, label="SLAM Orange")
 
         # --- Correspondences (UNCHANGED) ---
         tree_blue = cKDTree(gt_left)
@@ -381,10 +398,13 @@ class ControlPanel(QWidget):
         gt_left = self.left.map.left_points
         gt_right = self.left.map.right_points
         gt_orange = getattr(self.left.map, "orange_points", np.empty((0, 2)))
+        gt_sorange = getattr(self.left.map, "sorange_points", np.empty((0, 2)))
 
         slam_left = self.right.map.left_points
         slam_right = self.right.map.right_points
         slam_orange = getattr(self.right.map, "orange_points", np.empty((0, 2)))
+        slam_sorange = getattr(self.right.map, "sorange_points", np.empty((0, 2)))
+
 
         # --- ICP ONLY on blue + yellow ---
         gt_all = np.vstack((gt_left, gt_right))
@@ -396,6 +416,7 @@ class ControlPanel(QWidget):
         slam_left_aligned = (R @ slam_left.T).T + t
         slam_right_aligned = (R @ slam_right.T).T + t
         slam_orange_aligned = (R @ slam_orange.T).T + t if len(slam_orange) else slam_orange
+        slam_sorange_aligned = (R @ slam_sorange.T).T + t if len(slam_sorange) else slam_sorange
 
         # --- ATE ---
         blue_ate = symmetric_ate(gt_left, slam_left_aligned)
@@ -418,8 +439,8 @@ class ControlPanel(QWidget):
 
         # --- UPDATED overlay call ---
         self.overlay.plot_overlay(
-            gt_left, gt_right, gt_orange,
-            slam_left_aligned, slam_right_aligned, slam_orange_aligned
+            gt_left, gt_right, gt_orange, gt_sorange,
+            slam_left_aligned, slam_right_aligned, slam_orange_aligned, slam_sorange_aligned    
         )
 
     def reset_all(self):
