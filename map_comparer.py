@@ -14,6 +14,7 @@ from matplotlib.figure import Figure
 
 from scipy.spatial import cKDTree
 
+font1 = {'family': 'DejaVu Sans', 'color': 'black', 'size': 20}
 
 # =========================
 # ICP + ATE UTILITIES
@@ -162,10 +163,10 @@ class MapPanel(QWidget):
         if orange_x:
             self.canvas.ax.scatter(orange_x, orange_y, c="orange", s=15, label="Orange cones")
 
-        self.canvas.ax.set_title(self.title)
+        self.canvas.ax.set_title(self.title, fontdict=font1)
         self.canvas.ax.set_aspect("equal")
         self.canvas.ax.grid()
-        self.canvas.ax.legend()
+        self.canvas.ax.legend(bbox_to_anchor=(0.48, -0.1), loc="upper center", ncol=3)
 
         self.canvas.draw()
 
@@ -228,10 +229,10 @@ class OverlayPanel(QWidget):
                     [slam_right[i][1], gt_right[j][1]],
                     'gray', linewidth=0.5)
 
-        ax.set_title("Overlay + Correspondences")
+        ax.set_title("Overlay + Correspondences", fontdict=font1)
         ax.set_aspect("equal")
         ax.grid()
-        ax.legend()
+        ax.legend(bbox_to_anchor=(0.48, -0.1), loc="upper center", ncol=2)
 
         self.canvas.draw()
 
@@ -373,6 +374,10 @@ class ControlPanel(QWidget):
         slam_all = np.vstack((slam_left, slam_right))
 
         R, t = icp_full(slam_all, gt_all)
+        
+        print("ICP Result:")
+        print("Rotation:\n", R)
+        print("Translation:\n", t)
 
         # --- align everything ---
         slam_left_aligned = (R @ slam_left.T).T + t
