@@ -189,16 +189,29 @@ class OverlayPanel(QWidget):
         layout.addWidget(self.toolbar)
         self.setLayout(layout)
 
-    def plot_overlay(self, gt_left, gt_right, slam_left, slam_right):
+    def plot_overlay(self, gt_left, gt_right, gt_orange,
+                 slam_left, slam_right, slam_orange):
+
         ax = self.canvas.ax
         ax.clear()
 
-        ax.scatter(gt_left[:, 0], gt_left[:, 1], c="blue", s=20, label="GT Blue")
-        ax.scatter(gt_right[:, 0], gt_right[:, 1], c="gold", s=20, label="GT Yellow")
+        # --- GT ---
+        ax.scatter(gt_left[:, 0], gt_left[:, 1], s=20, label="GT Blue", edgecolors="blue", facecolors="none",)
+        ax.scatter(gt_right[:, 0], gt_right[:, 1], s=20, label="GT Yellow", edgecolors="orange", facecolors="none")
 
+        if len(gt_orange) > 0:
+            ax.scatter(gt_orange[:, 0], gt_orange[:, 1],
+                    s=50, label="GT Orange", edgecolors="red", facecolors="none")
+
+        # --- SLAM ---
         ax.scatter(slam_left[:, 0], slam_left[:, 1], c="cyan", s=10, label="SLAM Blue")
         ax.scatter(slam_right[:, 0], slam_right[:, 1], c="orange", s=10, label="SLAM Yellow")
 
+        if len(slam_orange) > 0:
+            ax.scatter(slam_orange[:, 0], slam_orange[:, 1],
+                    c="red", s=40, label="SLAM Orange")
+
+        # --- Correspondences (UNCHANGED) ---
         tree_blue = cKDTree(gt_left)
         _, idx_blue = tree_blue.query(slam_left)
 
@@ -349,18 +362,24 @@ class ControlPanel(QWidget):
 
         gt_left = self.left.map.left_points
         gt_right = self.left.map.right_points
+        gt_orange = getattr(self.left.map, "orange_points", np.empty((0, 2)))
 
         slam_left = self.right.map.left_points
         slam_right = self.right.map.right_points
+        slam_orange = getattr(self.right.map, "orange_points", np.empty((0, 2)))
 
+        # --- ICP ONLY on blue + yellow ---
         gt_all = np.vstack((gt_left, gt_right))
         slam_all = np.vstack((slam_left, slam_right))
 
         R, t = icp_full(slam_all, gt_all)
 
+        # --- align everything ---
         slam_left_aligned = (R @ slam_left.T).T + t
         slam_right_aligned = (R @ slam_right.T).T + t
+        slam_orange_aligned = (R @ slam_orange.T).T + t if len(slam_orange) else slam_orange
 
+        # --- ATE ---
         blue_ate = symmetric_ate(gt_left, slam_left_aligned)
         yellow_ate = symmetric_ate(gt_right, slam_right_aligned)
         total_ate = (blue_ate + yellow_ate) / 2
@@ -369,7 +388,11 @@ class ControlPanel(QWidget):
         self.yellow_box.set_value("Yellow ATE", yellow_ate)
         self.total_box.set_value("Total ATE", total_ate)
 
-        self.overlay.plot_overlay(gt_left, gt_right, slam_left_aligned, slam_right_aligned)
+        # --- UPDATED overlay call ---
+        self.overlay.plot_overlay(
+            gt_left, gt_right, gt_orange,
+            slam_left_aligned, slam_right_aligned, slam_orange_aligned
+        )
 
     def reset_all(self):
         self.left.reset()
